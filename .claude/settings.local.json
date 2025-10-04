@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(taskkill:*)",
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run:*)",
+      "Bash(tasklist)",
+      "Bash(findstr:*)",
+      "Bash(dir:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

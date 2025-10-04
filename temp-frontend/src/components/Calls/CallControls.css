@@ -1,0 +1,54 @@
+.call-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  background-color: rgba(0, 0, 0, 0.8);
+}
+
+.control-button {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  border: none;
+  background-color: #424242;
+  color: white;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.control-button:hover {
+  background-color: #616161;
+  transform: scale(1.05);
+}
+
+.control-button.active {
+  background-color: #f44336;
+}
+
+.control-button.end-call {
+  background-color: #f44336;
+  font-size: 1.75rem;
+}
+
+.control-button.end-call:hover {
+  background-color: #d32f2f;
+}
+
+@media (max-width: 768px) {
+  .call-controls {
+    gap: 1rem;
+    padding: 1rem;
+  }
+
+  .control-button {
+    width: 3rem;
+    height: 3rem;
+    font-size: 1.25rem;
+  }
+}
