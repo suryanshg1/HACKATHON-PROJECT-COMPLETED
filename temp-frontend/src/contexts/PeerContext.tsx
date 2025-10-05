@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState, ReactNode, useRef } from 'react';
 import { useWebSocket } from './WebSocketContext';
 
 interface PeerConnection {
@@ -12,6 +12,9 @@ interface PeerContextType {
   sendToPeer: (peerId: string, data: any) => void;
   startCall: (peerId: string, isVideo: boolean) => Promise<void>;
   endCall: (peerId: string) => void;
+  incomingCall: { peerId: string; isVideo: boolean; offer: RTCSessionDescriptionInit } | null;
+  acceptCall: () => Promise<void>;
+  rejectCall: () => void;
 }
 
 // Configuration for LAN-only WebRTC (no internet required)
@@ -30,6 +33,9 @@ const PeerContext = createContext<PeerContextType>({
   sendToPeer: () => {},
   startCall: async () => {},
   endCall: () => {},
+  incomingCall: null,
+  acceptCall: async () => {},
+  rejectCall: () => {},
 });
 
 export const usePeer = () => useContext(PeerContext);
@@ -40,13 +46,16 @@ interface PeerProviderProps {
 
 export const PeerProvider: React.FC<PeerProviderProps> = ({ children }) => {
   const [peers, setPeers] = useState<Map<string, PeerConnection>>(new Map());
+  const [incomingCall, setIncomingCall] = useState<{ peerId: string; isVideo: boolean; offer: RTCSessionDescriptionInit } | null>(null);
   const { socket, sendMessage } = useWebSocket();
 
   const createPeerConnection = async (peerId: string) => {
     const peerConnection = new RTCPeerConnection(configuration);
     const dataChannel = peerConnection.createDataChannel('data');
-    
-    setPeers(new Map(peers.set(peerId, { connection: peerConnection, dataChannel })));
+
+    const newPeers = new Map(peers);
+    newPeers.set(peerId, { connection: peerConnection, dataChannel });
+    setPeers(newPeers);
 
     peerConnection.onicecandidate = (event) => {
       if (event.candidate) {
@@ -74,10 +83,21 @@ export const PeerProvider: React.FC<PeerProviderProps> = ({ children }) => {
 
   const startCall = async (peerId: string, isVideo: boolean) => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: isVideo,
-        audio: true,
-      });
+      // Optimized constraints to reduce buffering
+      const constraints = {
+        video: isVideo ? {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30, max: 30 }
+        } : false,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       let peerConnection: RTCPeerConnection;
       const peer = peers.get(peerId);
@@ -98,6 +118,7 @@ export const PeerProvider: React.FC<PeerProviderProps> = ({ children }) => {
         type: 'offer',
         offer: offer,
         target: peerId,
+        isVideo: isVideo, // Send video flag
       });
     } catch (error) {
       console.error('Error starting call:', error);
@@ -109,8 +130,68 @@ export const PeerProvider: React.FC<PeerProviderProps> = ({ children }) => {
     const peer = peers.get(peerId);
     if (peer) {
       peer.connection.close();
-      peers.delete(peerId);
-      setPeers(new Map(peers));
+      const newPeers = new Map(peers);
+      newPeers.delete(peerId);
+      setPeers(newPeers);
+    }
+  };
+
+  const acceptCall = async () => {
+    if (!incomingCall) return;
+
+    const peerId = incomingCall.peerId;
+    const isVideo = incomingCall.isVideo;
+
+    try {
+      // Optimized constraints to reduce buffering
+      const constraints = {
+        video: isVideo ? {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          frameRate: { ideal: 30, max: 30 }
+        } : false,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      };
+
+      // Get user media for the call
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+
+      const { peerConnection } = await createPeerConnection(peerId);
+
+      // Add tracks to peer connection
+      stream.getTracks().forEach(track => peerConnection.addTrack(track, stream));
+
+      // Set remote description from the stored offer
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(incomingCall.offer));
+
+      // Create and send answer
+      const answer = await peerConnection.createAnswer();
+      await peerConnection.setLocalDescription(answer);
+
+      sendMessage({
+        type: 'answer',
+        answer: answer,
+        target: peerId,
+      });
+
+      setIncomingCall(null);
+    } catch (error) {
+      console.error('Error accepting call:', error);
+      setIncomingCall(null);
+    }
+  };
+
+  const rejectCall = () => {
+    if (incomingCall) {
+      sendMessage({
+        type: 'call-rejected',
+        target: incomingCall.peerId,
+      });
+      setIncomingCall(null);
     }
   };
 
@@ -144,15 +225,11 @@ export const PeerProvider: React.FC<PeerProviderProps> = ({ children }) => {
     const peerId = data.sender;
     if (!peerId) return;
 
-    const { peerConnection } = await createPeerConnection(peerId);
-    await peerConnection.setRemoteDescription(new RTCSessionDescription(data.offer));
-    const answer = await peerConnection.createAnswer();
-    await peerConnection.setLocalDescription(answer);
-
-    sendMessage({
-      type: 'answer',
-      answer: answer,
-      target: peerId,
+    // Set incoming call to show UI prompt
+    setIncomingCall({
+      peerId,
+      isVideo: data.isVideo || false,
+      offer: data.offer
     });
   };
 
@@ -173,7 +250,7 @@ export const PeerProvider: React.FC<PeerProviderProps> = ({ children }) => {
   };
 
   return (
-    <PeerContext.Provider value={{ peers, createPeerConnection, sendToPeer, startCall, endCall }}>
+    <PeerContext.Provider value={{ peers, createPeerConnection, sendToPeer, startCall, endCall, incomingCall, acceptCall, rejectCall }}>
       {children}
     </PeerContext.Provider>
   );

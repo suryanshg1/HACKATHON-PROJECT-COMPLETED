@@ -3,6 +3,7 @@ import React, {
   useContext,
   useState,
   useCallback,
+  useRef,
   ReactNode,
 } from 'react';
 
@@ -13,7 +14,7 @@ type PeerInfo = {
 };
 
 type MessageData = {
-  type: 'text' | 'file' | 'discovery' | 'peer_list' | 'ice-candidate' | 'offer' | 'answer';
+  type: 'text' | 'file' | 'discovery' | 'peer_list' | 'ice-candidate' | 'offer' | 'answer' | 'call-rejected';
   content?: string;
   filename?: string;
   fileSize?: number;
@@ -27,6 +28,7 @@ type MessageData = {
   answer?: RTCSessionDescriptionInit;
   target?: string;
   sender?: string;
+  isVideo?: boolean;
   [key: string]: any;
 };
 
@@ -67,10 +69,10 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
   const [isConnecting, setIsConnecting] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [availablePeers, setAvailablePeers] = useState<PeerInfo[]>([]);
-  const [messageHandlers, setMessageHandlers] = useState<Array<(data: MessageData) => void>>([]);
+  const messageHandlersRef = useRef<Array<(data: MessageData) => void>>([]);
 
   const onMessage = useCallback((handler: (data: MessageData) => void) => {
-    setMessageHandlers(prev => [...prev, handler]);
+    messageHandlersRef.current.push(handler);
   }, []);
 
   const handleMessage = useCallback((event: MessageEvent) => {
@@ -80,12 +82,12 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
         setAvailablePeers(message.peers);
       } else {
         // Call all registered message handlers
-        messageHandlers.forEach(handler => handler(message));
+        messageHandlersRef.current.forEach(handler => handler(message));
       }
     } catch (error) {
       console.error('Error parsing message:', error);
     }
-  }, [messageHandlers]);
+  }, []);
 
   const disconnect = useCallback(() => {
     if (socket) {

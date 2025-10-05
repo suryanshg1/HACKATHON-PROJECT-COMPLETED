@@ -6,11 +6,12 @@ import './CallControls.css';
 interface CallControlsProps {
   onEndCall: () => void;
   stream: MediaStream | null;
+  isVideo: boolean;
 }
 
-const CallControls: React.FC<CallControlsProps> = ({ onEndCall, stream }) => {
+const CallControls: React.FC<CallControlsProps> = ({ onEndCall, stream, isVideo }) => {
   const [isMuted, setIsMuted] = useState(false);
-  const [isVideoOff, setIsVideoOff] = useState(false);
+  const [isVideoOff, setIsVideoOff] = useState(!isVideo);
 
   const handleMuteToggle = () => {
     if (stream) {
@@ -23,7 +24,7 @@ const CallControls: React.FC<CallControlsProps> = ({ onEndCall, stream }) => {
   };
 
   const handleVideoToggle = () => {
-    if (stream) {
+    if (stream && isVideo) {
       const videoTracks = stream.getVideoTracks();
       videoTracks.forEach(track => {
         track.enabled = !track.enabled;
@@ -48,13 +49,15 @@ const CallControls: React.FC<CallControlsProps> = ({ onEndCall, stream }) => {
       >
         📞
       </button>
-      <button
-        className={`control-button ${isVideoOff ? 'active' : ''}`}
-        onClick={handleVideoToggle}
-        title={isVideoOff ? 'Turn Video On' : 'Turn Video Off'}
-      >
-        {isVideoOff ? '🎦' : '📹'}
-      </button>
+      {isVideo && (
+        <button
+          className={`control-button ${isVideoOff ? 'active' : ''}`}
+          onClick={handleVideoToggle}
+          title={isVideoOff ? 'Turn Video On' : 'Turn Video Off'}
+        >
+          {isVideoOff ? '🎦' : '📹'}
+        </button>
+      )}
     </div>
   );
 };
@@ -62,9 +65,10 @@ const CallControls: React.FC<CallControlsProps> = ({ onEndCall, stream }) => {
 interface VideoCallProps {
   peerId: string;
   onEndCall: () => void;
+  isVideo: boolean;
 }
 
-const VideoCall: React.FC<VideoCallProps> = ({ peerId, onEndCall }) => {
+const VideoCall: React.FC<VideoCallProps> = ({ peerId, onEndCall, isVideo }) => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
@@ -75,10 +79,21 @@ const VideoCall: React.FC<VideoCallProps> = ({ peerId, onEndCall }) => {
 
     const setupLocalVideo = async () => {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
-          audio: true,
-        });
+        // Optimized constraints to reduce buffering
+        const constraints = {
+          video: isVideo ? {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30, max: 30 }
+          } : false,
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        };
+
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
         if (!isMounted) {
           // Component unmounted, stop the stream right away
@@ -88,7 +103,7 @@ const VideoCall: React.FC<VideoCallProps> = ({ peerId, onEndCall }) => {
 
         setLocalStream(stream);
 
-        if (localVideoRef.current) {
+        if (localVideoRef.current && isVideo) {
           localVideoRef.current.srcObject = stream;
         }
 
@@ -110,11 +125,9 @@ const VideoCall: React.FC<VideoCallProps> = ({ peerId, onEndCall }) => {
       isMounted = false;
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
-        setLocalStream(null);
       }
     };
-  // Added localStream to the dependencies because it's used inside cleanup
-  }, [peerId, peers, localStream]);
+  }, [peerId, peers, isVideo]);
 
   useEffect(() => {
     const peer = peers.get(peerId);
@@ -122,7 +135,8 @@ const VideoCall: React.FC<VideoCallProps> = ({ peerId, onEndCall }) => {
 
     const handleTrack = (event: RTCTrackEvent) => {
       if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0];
+        const [remoteStream] = event.streams;
+        remoteVideoRef.current.srcObject = remoteStream;
       }
     };
 
@@ -135,28 +149,41 @@ const VideoCall: React.FC<VideoCallProps> = ({ peerId, onEndCall }) => {
 
   return (
     <div className="video-call-container">
-      <div className="video-grid">
-        <div className="video-wrapper remote">
-          <video
-            ref={remoteVideoRef}
-            autoPlay
-            playsInline
-            className="remote-video"
-          />
-          <div className="peer-name">Remote User</div>
+      {isVideo ? (
+        <div className="video-grid">
+          <div className="video-wrapper remote">
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className="remote-video"
+            />
+            <div className="peer-name">Remote User</div>
+          </div>
+          <div className="video-wrapper local">
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="local-video"
+            />
+            <div className="peer-name">You</div>
+          </div>
         </div>
-        <div className="video-wrapper local">
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            className="local-video"
-          />
-          <div className="peer-name">You</div>
+      ) : (
+        <div className="audio-call-display">
+          <div className="audio-call-info">
+            <div className="call-icon">🎤</div>
+            <div className="call-status">Voice Call in Progress</div>
+            <div className="peer-name">{peerId}</div>
+          </div>
+          {/* Hidden video elements for audio streams */}
+          <video ref={remoteVideoRef} autoPlay playsInline style={{ display: 'none' }} />
+          <video ref={localVideoRef} autoPlay playsInline muted style={{ display: 'none' }} />
         </div>
-      </div>
-      <CallControls onEndCall={onEndCall} stream={localStream} />
+      )}
+      <CallControls onEndCall={onEndCall} stream={localStream} isVideo={isVideo} />
     </div>
   );
 };

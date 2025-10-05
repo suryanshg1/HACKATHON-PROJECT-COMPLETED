@@ -4,8 +4,8 @@ import socket
 import json
 import time
 from datetime import datetime
-# We no longer need MessageHandler, so the import is removed.
 from peer_discovery import PeerDiscovery
+from file_handler import FileHandler
 
 class LANServer:
     def __init__(self, host='0.0.0.0', port=12345, username="Anonymous"):
@@ -13,7 +13,7 @@ class LANServer:
         self.port = port
         self.username = username
         self.peers = {}
-        # self.handler is no longer needed.
+        self.file_handler = FileHandler()
         self.peer_discovery = PeerDiscovery(username, listen_port=port)
         self.available_peers = {}
         self.loop = asyncio.get_event_loop()
@@ -50,7 +50,15 @@ class LANServer:
 
     async def handle_websocket(self, websocket):
         peer_info = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
+        peer_ip = websocket.remote_address[0]
         self.peers[peer_info] = websocket
+
+        # Add this WebSocket-connected peer to available_peers
+        self.available_peers[peer_ip] = {
+            'username': f'User@{peer_ip.split(".")[-1]}',
+            'last_seen': time.time()
+        }
+
         print(f"🔗 New connection from {peer_info}")
         try:
             await self.broadcast_peer_list()
@@ -65,6 +73,7 @@ class LANServer:
             print(f"👋 Client {peer_info} disconnected")
         finally:
             self.peers.pop(peer_info, None)
+            self.available_peers.pop(peer_ip, None)
             await self.broadcast_peer_list()
 
     def get_local_ips(self):
@@ -140,8 +149,22 @@ class LANServer:
         message['sender'] = sender_ip
         message['timestamp'] = timestamp
 
+        # Handle file uploads - save to data/files folder
+        if msg_type == 'file':
+            file_info = self.file_handler.process_file_upload({
+                'filename': message.get('fileName', 'unknown_file'),
+                'content': message.get('content', '')
+            })
+            if file_info['success']:
+                print(f"📁 File saved: {file_info['filename']} ({file_info['size']} bytes)")
+                # Add file info to message
+                message['savedFilename'] = file_info['filename']
+                message['filePath'] = file_info['path']
+            else:
+                print(f"❌ File save failed: {file_info.get('error', 'Unknown error')}")
+
         # Handle WebRTC signaling messages (route to specific peer)
-        if msg_type in ['offer', 'answer', 'ice-candidate']:
+        if msg_type in ['offer', 'answer', 'ice-candidate', 'call-rejected']:
             target_ip = message.get('target')
             if target_ip:
                 await self.send_to_peer(target_ip, message)

@@ -90,7 +90,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage, onFile
 
   const [isInCall, setIsInCall] = useState(false);
   const [activeCallPeer, setActiveCallPeer] = useState<string | null>(null);
-  const { startCall, endCall } = usePeer();
+  const [isVideoCall, setIsVideoCall] = useState(false);
+  const { startCall, endCall, incomingCall, acceptCall, rejectCall } = usePeer();
 
   const handleStartCall = async (withVideo: boolean) => {
     try {
@@ -101,11 +102,31 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage, onFile
       await startCall(selectedUser, withVideo);
       setActiveCallPeer(selectedUser);
       setIsInCall(true);
+      setIsVideoCall(withVideo);
       toast.success(`Starting ${withVideo ? 'video' : 'voice'} call...`);
     } catch (error) {
       toast.error('Failed to start call');
       console.error('Call error:', error);
     }
+  };
+
+  const handleAcceptCall = async () => {
+    try {
+      await acceptCall();
+      if (incomingCall) {
+        setActiveCallPeer(incomingCall.peerId);
+        setIsInCall(true);
+        setIsVideoCall(incomingCall.isVideo);
+      }
+    } catch (error) {
+      toast.error('Failed to accept call');
+      console.error('Accept call error:', error);
+    }
+  };
+
+  const handleRejectCall = () => {
+    rejectCall();
+    toast.info('Call rejected');
   };
 
   const handleEndCall = () => {
@@ -118,10 +139,29 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage, onFile
 
   return (
     <div className="chat-window" {...getRootProps()}>
+      {/* Incoming Call Modal */}
+      {incomingCall && !isInCall && (
+        <div className="incoming-call-modal">
+          <div className="incoming-call-content">
+            <h3>{incomingCall.isVideo ? '📹 Incoming Video Call' : '🎤 Incoming Voice Call'}</h3>
+            <p>From: {incomingCall.peerId}</p>
+            <div className="incoming-call-buttons">
+              <button className="accept-button" onClick={handleAcceptCall}>
+                Accept
+              </button>
+              <button className="reject-button" onClick={handleRejectCall}>
+                Reject
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isInCall && activeCallPeer ? (
         <VideoCall
           peerId={activeCallPeer}
           onEndCall={handleEndCall}
+          isVideo={isVideoCall}
         />
       ) : (
         <>
@@ -163,6 +203,19 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ messages, onSendMessage, onFile
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && handleSendMessage()}
               placeholder="Type a message..."
+            />
+            <label htmlFor="file-input" className="file-button" title="Send File">
+              📎
+            </label>
+            <input
+              id="file-input"
+              type="file"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files && e.target.files.length > 0) {
+                  handleFileUpload(Array.from(e.target.files));
+                }
+              }}
             />
             <button
               className="send-button"
