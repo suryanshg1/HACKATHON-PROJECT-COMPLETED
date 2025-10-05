@@ -240,10 +240,10 @@ class LANMessenger:
         threading.Thread(target=self._start_server, daemon=True).start()
         self._start_discovery()
         threading.Thread(target=self._prune_inactive_peers, daemon=True).start()
-        
+
         # Start voice/video server
         self.voice_video_handler.start_call_server()
-        
+
         self.run_cli()
 
     def stop(self):

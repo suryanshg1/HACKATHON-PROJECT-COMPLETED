@@ -123,6 +123,13 @@ export const WebSocketProvider: React.FC<WebSocketProviderProps> = ({ children }
       setIsConnecting(false);
       setConnectionError(null);
       newSocket.onmessage = handleMessage;
+
+      // Send registration message to server
+      const username = prompt('Enter your username:') || 'User_' + Math.floor(Math.random() * 1000);
+      newSocket.send(JSON.stringify({
+        type: 'register',
+        username: username
+      }));
     };
 
     newSocket.onclose = () => {
